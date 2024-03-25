@@ -1,26 +1,20 @@
-# SPDX-License-Identifier: Apache-2.0
-# Copyright Contributors to the ODPi Egeria project.
----
-name: "Check documentation links"
-
-on:
-  push:
-  pull_request:
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
 jobs:
   linkChecker:
-    runs-on: ubuntu-latest
     if: startsWith(github.repository,'odpi/')
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4.1.0
-      - name: Link Checker
-        uses: lycheeverse/lychee-action@v1.9.3
-        with:
-          # Can switch to true once we run clean
-          fail: false
-        env:
-          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+    - continue-on-error: true
+      uses: actions/checkout@v4.1.0
+    - continue-on-error: true
+      env:
+        GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+      name: Link Checker
+      uses: lycheeverse/lychee-action@v1.9.3
+      with:
+        fail: false
+name: Check documentation links
+on:
+  repository_dispatch:
+    types: trigger-ga___linkcheck.yml
+permissions:
+  contents: read

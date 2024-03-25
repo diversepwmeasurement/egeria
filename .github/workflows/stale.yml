@@ -1,40 +1,37 @@
-# SPDX-License-Identifier: Apache-2.0
-# Copyright Contributors to the ODPi Egeria project.
----
-name: Mark stale issues and pull requests
-
-on:
-  schedule:
-    - cron: "0 0 * * *"
-
-permissions:
-  contents: read
-
 jobs:
   stale:
-    permissions:
-      issues: write  # for actions/stale to close stale issues
-      pull-requests: write  # for actions/stale to close stale PRs
-    runs-on: ubuntu-latest
     if: startsWith(github.repository,'odpi/')
+    permissions:
+      issues: write
+      pull-requests: write
+    runs-on: self-hosted
     steps:
-      - name: check stale issues and prs
-        if: startsWith(github.repository,'odpi/')
-        uses: actions/stale@v9
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          stale-issue-message: >
-            This issue has been automatically marked as stale because it has
-            not had recent activity. It will be closed in 20 days if no
-            further activity occurs. Thank you for your contributions.
-          stale-pr-message: >
-            This PR has been automatically marked as stale because it has not
-            had recent activity. It will be closed in 20 days if no further
-            activity occurs. Thank you for your contributions.
-          stale-issue-label: 'no-issue-activity'
-          stale-pr-label: 'no-pr-activity'
-          days-before-stale: 60
-          days-before-close: 20
-          exempt-issue-labels: 'pinned'
-          exempt-pr-labels: 'pinned'
-          operations-per-run: 30
+    - continue-on-error: true
+      if: startsWith(github.repository,'odpi/')
+      name: check stale issues and prs
+      uses: actions/stale@v9
+      with:
+        days-before-close: 20
+        days-before-stale: 60
+        exempt-issue-labels: pinned
+        exempt-pr-labels: pinned
+        operations-per-run: 30
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+        stale-issue-label: no-issue-activity
+        stale-issue-message: 'This issue has been automatically marked as stale because
+          it has not had recent activity. It will be closed in 20 days if no further
+          activity occurs. Thank you for your contributions.
+
+          '
+        stale-pr-label: no-pr-activity
+        stale-pr-message: 'This PR has been automatically marked as stale because
+          it has not had recent activity. It will be closed in 20 days if no further
+          activity occurs. Thank you for your contributions.
+
+          '
+name: Mark stale issues and pull requests
+on:
+  repository_dispatch:
+    types: trigger-ga___stale.yml
+permissions:
+  contents: read

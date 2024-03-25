@@ -1,145 +1,152 @@
-# SPDX-License-Identifier: Apache-2.0
-# Copyright Contributors to the ODPi Egeria project.
----
-name: "Merge v4"
-
-# Trigger after code is merged. only on main repo
-# - does not run on modification (may be just text)
-
-on:
-  push:
-    branches: [main, egeria-release-4*]
-
-permissions:
-  contents: read
-
 jobs:
   build:
-    permissions:
-      # for gh-pages
-      contents: write
-    runs-on: ubuntu-latest
-    name: "Merge v4"
     if: startsWith(github.repository,'odpi/')
+    name: Merge v4
+    permissions:
+      contents: write
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4.1.0
-        name: Checkout source
-      - uses: gradle/wrapper-validation-action@v2
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-      # Build first - lombok & other pre-processing may be needed. safer...
-      - name: build and publish to maven central
-        if: ${{ github.ref == 'refs/heads/main'}}
-        uses: gradle/gradle-build-action@v3
-        with:
-          cache-read-only: false
-          arguments: build publish
-        # Import secrets needed for code signing and distribution
-        env:
-          OSSRH_GPG_KEYID: ${{ secrets.OSSRH_GPG_KEYID }}
-          OSSRH_GPG_PASSPHRASE: ${{ secrets.OSSRH_GPG_PASSPHRASE }}
-          OSSRH_GPG_PRIVATE_KEY: ${{ secrets.OSSRH_GPG_PRIVATE_KEY }}
-          ORG_GRADLE_PROJECT_mavenRepoPass: ${{ secrets.OSSRH_TOKEN }}
-          ORG_GRADLE_PROJECT_mavenRepoUser: ${{ secrets.OSSRH_USERNAME }}
-      # In other cases just build but don't publish
-      - name: build (no publish to maven central)
-        if: ${{ github.ref != 'refs/heads/main'}}
-        uses: gradle/gradle-build-action@v3
-        with:
-          cache-read-only: false
-          arguments: build
-      # Now aggregate javadoc - main only
-      - name: build
-        if: ${{ github.ref == 'refs/heads/main'}}
-        uses: gradle/gradle-build-action@v3
-        with:
-          cache-read-only: false
-          arguments: aggregateJavadoc
-      - name: publish aggregate javadoc
-        if: ${{ github.ref == 'refs/heads/main'}}
-        uses: JamesIves/github-pages-deploy-action@v4
-        with:
-          branch: gh-pages
-          folder: build/docs/javadoc
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Login to container registry (Quay.io)
-        uses: docker/login-action@v3
-        with:
-          registry: quay.io
-          username: ${{ secrets.QUAY_IO_USERNAME }}
-          password: ${{ secrets.QUAY_IO_ACCESS_TOKEN }}
-      - name: Login to container registry (Docker Hub)
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
-      # QEMU is needed for ARM64 build for egeria-configure
-      # egeria-configure needs to install utilities
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-      - name: Set Release version env variable
-        run: |
-          echo "VERSION=$(./gradlew properties --no-daemon --console=plain -q | grep '^version:' | awk '{printf $2}')" >> $GITHUB_ENV
-      # Publish container images(egeria) to quay.io and docker.io
-      - name: Copy the distribution content to be used in docker copy command
-        run: |
-          mkdir -p ./open-metadata-resources/open-metadata-deployment/docker/egeria/build/assembly
-          cp -r open-metadata-distribution/open-metadata-assemblies/build/unpacked/egeria-${{ env.VERSION }}-distribution.tar.gz/. open-metadata-resources/open-metadata-deployment/docker/egeria/build/assembly
-      - name: Build and push(egeria) to quay.io and docker.io (tag latest only for main!)
-        if: ${{ github.ref == 'refs/heads/main'}}
-        uses: docker/build-push-action@v5
-        with:
-          push: true
-          tags: odpi/egeria:${{ env.VERSION }}, odpi/egeria:latest, quay.io/odpi/egeria:${{ env.VERSION }}, quay.io/odpi/egeria:latest
-          context: ./open-metadata-resources/open-metadata-deployment/docker/egeria
-          platforms: linux/amd64,linux/arm64
-      - name: Build and push(egeria) to quay.io and docker.io (no tag latest)
-        if: ${{ github.ref != 'refs/heads/main'}}
-        uses: docker/build-push-action@v5
-        with:
-          push: true
-          tags: odpi/egeria:${{ env.VERSION }}, quay.io/odpi/egeria:${{ env.VERSION }}
-          context: ./open-metadata-resources/open-metadata-deployment/docker/egeria
-          platforms: linux/amd64,linux/arm64
-      # Publish container images(egeria-configure) to quay.io and docker.io
-      - name: Build and push(egeria-configure) to quay.io and docker.io (tag latest)
-        if: ${{ github.ref == 'refs/heads/main'}}
-        uses: docker/build-push-action@v5
-        with:
-          push: true
-          tags: odpi/egeria-configure:${{ env.VERSION }}, odpi/egeria-configure:latest, quay.io/odpi/egeria-configure:${{ env.VERSION }}, quay.io/odpi/egeria-configure:latest
-          context: ./open-metadata-resources/open-metadata-deployment/docker/configure
-          platforms: linux/amd64,linux/arm64
-      # --
-      # Publish container images(egeria-configure) to quay.io and docker.io
-      - name: Build and push(egeria-configure) to quay.io and docker.io (no tag latest)
-        if: ${{ github.ref != 'refs/heads/main'}}
-        uses: docker/build-push-action@v5
-        with:
-          push: true
-          tags: odpi/egeria-configure:${{ env.VERSION }}, quay.io/odpi/egeria-configure:${{ env.VERSION }}
-          context: ./open-metadata-resources/open-metadata-deployment/docker/configure
-          platforms: linux/amd64,linux/arm64
-      # --
-      - name: Upload Log of any dependency failures
-        uses: actions/upload-artifact@v4.3.1
-        with:
-          name: Dependency Analysis Report (on failure)
-          path: build/reports/dependency-analysis/build-health-report.txt
-          if-no-files-found: ignore
-      # Mostly for verification - not published to the release itself for now
-      - name: Upload assemblies
-        uses: actions/upload-artifact@v4.3.1
-        with:
-          name: Assemblies
-          path: open-metadata-distribution/open-metadata-assemblies/build/distributions/*.gz
-      - name: Upload Test coverage report
-        uses: actions/upload-artifact@v4.3.1
-        with:
-          name: Jacoco Coverage Report
-          path: build/reports/jacoco/codeCoverageReport
-          if-no-files-found: ignore
+    - continue-on-error: true
+      name: Checkout source
+      uses: actions/checkout@v4.1.0
+    - continue-on-error: true
+      uses: gradle/wrapper-validation-action@v2
+    - continue-on-error: true
+      name: Set up JDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+    - continue-on-error: true
+      env:
+        ORG_GRADLE_PROJECT_mavenRepoPass: ${{ secrets.OSSRH_TOKEN }}
+        ORG_GRADLE_PROJECT_mavenRepoUser: ${{ secrets.OSSRH_USERNAME }}
+        OSSRH_GPG_KEYID: ${{ secrets.OSSRH_GPG_KEYID }}
+        OSSRH_GPG_PASSPHRASE: ${{ secrets.OSSRH_GPG_PASSPHRASE }}
+        OSSRH_GPG_PRIVATE_KEY: ${{ secrets.OSSRH_GPG_PRIVATE_KEY }}
+      if: ${{ github.ref == 'refs/heads/main'}}
+      name: build and publish to maven central
+      uses: gradle/gradle-build-action@v3
+      with:
+        arguments: build publish
+        cache-read-only: false
+    - continue-on-error: true
+      if: ${{ github.ref != 'refs/heads/main'}}
+      name: build (no publish to maven central)
+      uses: gradle/gradle-build-action@v3
+      with:
+        arguments: build
+        cache-read-only: false
+    - continue-on-error: true
+      if: ${{ github.ref == 'refs/heads/main'}}
+      name: build
+      uses: gradle/gradle-build-action@v3
+      with:
+        arguments: aggregateJavadoc
+        cache-read-only: false
+    - continue-on-error: true
+      if: ${{ github.ref == 'refs/heads/main'}}
+      name: publish aggregate javadoc
+      uses: JamesIves/github-pages-deploy-action@v4
+      with:
+        branch: gh-pages
+        folder: build/docs/javadoc
+    - continue-on-error: true
+      name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    - continue-on-error: true
+      name: Login to container registry (Quay.io)
+      uses: docker/login-action@v3
+      with:
+        password: ${{ secrets.QUAY_IO_ACCESS_TOKEN }}
+        registry: quay.io
+        username: ${{ secrets.QUAY_IO_USERNAME }}
+    - continue-on-error: true
+      name: Login to container registry (Docker Hub)
+      uses: docker/login-action@v3
+      with:
+        password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+        username: ${{ secrets.DOCKER_HUB_USERNAME }}
+    - continue-on-error: true
+      name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+    - continue-on-error: true
+      name: Set Release version env variable
+      run: 'echo "VERSION=$(./gradlew properties --no-daemon --console=plain -q |
+        grep ''^version:'' | awk ''{printf $2}'')" >> $GITHUB_ENV
+
+        '
+    - continue-on-error: true
+      name: Copy the distribution content to be used in docker copy command
+      run: 'mkdir -p ./open-metadata-resources/open-metadata-deployment/docker/egeria/build/assembly
+
+        cp -r open-metadata-distribution/open-metadata-assemblies/build/unpacked/egeria-${{
+        env.VERSION }}-distribution.tar.gz/. open-metadata-resources/open-metadata-deployment/docker/egeria/build/assembly
+
+        '
+    - continue-on-error: true
+      if: ${{ github.ref == 'refs/heads/main'}}
+      name: Build and push(egeria) to quay.io and docker.io (tag latest only for main!)
+      uses: docker/build-push-action@v5
+      with:
+        context: ./open-metadata-resources/open-metadata-deployment/docker/egeria
+        platforms: linux/amd64,linux/arm64
+        push: false
+        tags: odpi/egeria:${{ env.VERSION }}, odpi/egeria:latest, quay.io/odpi/egeria:${{
+          env.VERSION }}, quay.io/odpi/egeria:latest
+    - continue-on-error: true
+      if: ${{ github.ref != 'refs/heads/main'}}
+      name: Build and push(egeria) to quay.io and docker.io (no tag latest)
+      uses: docker/build-push-action@v5
+      with:
+        context: ./open-metadata-resources/open-metadata-deployment/docker/egeria
+        platforms: linux/amd64,linux/arm64
+        push: false
+        tags: odpi/egeria:${{ env.VERSION }}, quay.io/odpi/egeria:${{ env.VERSION
+          }}
+    - continue-on-error: true
+      if: ${{ github.ref == 'refs/heads/main'}}
+      name: Build and push(egeria-configure) to quay.io and docker.io (tag latest)
+      uses: docker/build-push-action@v5
+      with:
+        context: ./open-metadata-resources/open-metadata-deployment/docker/configure
+        platforms: linux/amd64,linux/arm64
+        push: false
+        tags: odpi/egeria-configure:${{ env.VERSION }}, odpi/egeria-configure:latest,
+          quay.io/odpi/egeria-configure:${{ env.VERSION }}, quay.io/odpi/egeria-configure:latest
+    - continue-on-error: true
+      if: ${{ github.ref != 'refs/heads/main'}}
+      name: Build and push(egeria-configure) to quay.io and docker.io (no tag latest)
+      uses: docker/build-push-action@v5
+      with:
+        context: ./open-metadata-resources/open-metadata-deployment/docker/configure
+        platforms: linux/amd64,linux/arm64
+        push: false
+        tags: odpi/egeria-configure:${{ env.VERSION }}, quay.io/odpi/egeria-configure:${{
+          env.VERSION }}
+    - continue-on-error: true
+      name: Upload Log of any dependency failures
+      uses: actions/upload-artifact@v4.3.1
+      with:
+        if-no-files-found: ignore
+        name: Dependency Analysis Report (on failure)
+        path: build/reports/dependency-analysis/build-health-report.txt
+    - continue-on-error: true
+      name: Upload assemblies
+      uses: actions/upload-artifact@v4.3.1
+      with:
+        name: Assemblies
+        path: open-metadata-distribution/open-metadata-assemblies/build/distributions/*.gz
+    - continue-on-error: true
+      name: Upload Test coverage report
+      uses: actions/upload-artifact@v4.3.1
+      with:
+        if-no-files-found: ignore
+        name: Jacoco Coverage Report
+        path: build/reports/jacoco/codeCoverageReport
+name: Merge v4
+on:
+  repository_dispatch:
+    types: trigger-ga___merge-v4.yml
+permissions:
+  contents: read
